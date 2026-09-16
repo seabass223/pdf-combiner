@@ -23,7 +23,7 @@ class AppTests(unittest.TestCase):
         self.client = app.test_client()
 
     def test_health(self):
-        self.assertEqual(self.client.get("/health").json, {"status": "ok"})
+        self.assertEqual(self.client.get("/health").json, {"status": "ok", "app": "pdf-combiner"})
 
     def test_interface_explains_page_range_format(self):
         response = self.client.get("/")

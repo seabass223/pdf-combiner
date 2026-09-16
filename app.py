@@ -29,7 +29,7 @@ def index() -> str:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "app": "pdf-combiner"}
 
 
 @app.post("/combine")

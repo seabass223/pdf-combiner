@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import math
 import os
 import re
@@ -11,7 +12,9 @@ from datetime import date
 from pathlib import Path
 from typing import BinaryIO, Iterable, Sequence
 
+import pikepdf
 from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, TextStringObject
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfbase import pdfmetrics
@@ -22,6 +25,7 @@ from reportlab.pdfgen import canvas
 PAGE_WIDTH, PAGE_HEIGHT = letter
 FIRST_PAGE_CAPACITY = 10
 CONTINUATION_PAGE_CAPACITY = 15
+LOGGER = logging.getLogger(__name__)
 
 
 class CombineError(ValueError):
@@ -230,6 +234,44 @@ def _create_cover(
     return buffer
 
 
+def _read_pdf(data: bytes, filename: str) -> tuple[PdfReader, int]:
+    reader = PdfReader(io.BytesIO(data), strict=False)
+    if reader.is_encrypted:
+        try:
+            unlocked = reader.decrypt("")
+        except Exception as exc:
+            raise CombineError(f"{filename} is password protected.") from exc
+        if not unlocked:
+            raise CombineError(f"{filename} is password protected.")
+    return reader, len(reader.pages)
+
+
+def _repair_pdf(data: bytes, filename: str) -> tuple[PdfReader, int]:
+    """Normalize a malformed but viewable PDF, then reopen it with pypdf."""
+    try:
+        document = pikepdf.open(io.BytesIO(data), attempt_recovery=True)
+    except pikepdf.PasswordError as exc:
+        raise CombineError(f"{filename} is password protected.") from exc
+    with document:
+        if len(document.pages) == 0:
+            raise CombineError(f"{filename} has no pages.")
+        repaired = io.BytesIO()
+        document.save(repaired)
+    return _read_pdf(repaired.getvalue(), filename)
+
+
+def _namespace_form_fields(reader: PdfReader, prefix: str) -> None:
+    """Prefix top-level field names so forms from different PDFs cannot collide."""
+    acroform = reader.root_object.get("/AcroForm")
+    if not acroform or "/Fields" not in acroform:
+        return
+    for position, field_reference in enumerate(acroform["/Fields"], start=1):
+        field = field_reference.get_object()
+        current_name = str(field.get("/T", "")).strip()
+        suffix = current_name or f"field_{position}"
+        field[NameObject("/T")] = TextStringObject(f"{prefix}.{suffix}")
+
+
 def inspect_sources(
     sources: Iterable[SourceDocument],
 ) -> tuple[list[tuple[SourceDocument, PdfReader, tuple[int, ...]]], int]:
@@ -237,21 +279,24 @@ def inspect_sources(
     total_pages = 0
     for index, source in enumerate(sources, start=1):
         filename = _safe_name(source.filename)
+        data = b""
         try:
             source.stream.seek(0)
-            reader = PdfReader(source.stream, strict=False)
-            if reader.is_encrypted:
-                try:
-                    unlocked = reader.decrypt("")
-                except Exception as exc:
-                    raise CombineError(f"{filename} is password protected.") from exc
-                if not unlocked:
-                    raise CombineError(f"{filename} is password protected.")
-            page_count = len(reader.pages)
+            data = source.stream.read()
+            reader, page_count = _read_pdf(data, filename)
         except CombineError:
             raise
-        except Exception as exc:
-            raise CombineError(f"{filename} is not a readable PDF.") from exc
+        except Exception as primary_error:
+            LOGGER.warning("Primary reader rejected %s; attempting automatic repair: %s", filename, primary_error)
+            try:
+                reader, page_count = _repair_pdf(data, filename)
+            except CombineError:
+                raise
+            except Exception as repair_error:
+                raise CombineError(
+                    f"{filename} could not be decoded, even after automatic repair. "
+                    "Try opening it and using Print to PDF, then add the new copy."
+                ) from repair_error
         if page_count == 0:
             raise CombineError(f"{filename} has no pages.")
         selected_pages = parse_page_selection(source.page_range, page_count, filename)
@@ -297,11 +342,17 @@ def combine_documents(
         for page in cover.pages:
             writer.add_page(page)
 
-    for info, (_, reader, selected_pages) in zip(infos, inspected):
-        destination_page = len(writer.pages)
-        for page_index in selected_pages:
-            writer.add_page(reader.pages[page_index])
-        writer.add_outline_item(info.title, destination_page)
+    for source_number, (info, (_, reader, selected_pages)) in enumerate(zip(infos, inspected), start=1):
+        # Keep AcroForm fields and widget annotations together. A unique top-level
+        # name prevents identically named fields from separate PDFs from sharing
+        # (and potentially overwriting) each other's values.
+        _namespace_form_fields(reader, f"source_{source_number}")
+        writer.append(
+            reader,
+            outline_item=info.title,
+            pages=list(selected_pages),
+            import_outline=False,
+        )
 
     writer.add_metadata(
         {
