@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 5,
+  "name": "pdf-combiner",
+  "displayName": "PDF Combiner",
+  "type": "python",
+  "targets": ["app"],
+  "pin": {
+    "enabled": true,
+    "icon": "assets/pdf-combiner.ico"
+  },
+  "python": {
+    "entry": "launcher.py",
+    "checkArgs": ["--check"]
+  }
+}

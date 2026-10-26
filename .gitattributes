@@ -1,0 +1,5 @@
+# Local Build Protocol managed files: keep LF endings so build.sh runs in bash (core.autocrlf would otherwise
+# check it out as CRLF) and the copies stay byte-identical to ~/.claude/build-protocol/templates.
+*.sh              text eol=lf
+serve.mjs         text eol=lf
+BuildProtocol.cs  text eol=lf

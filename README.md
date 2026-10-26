@@ -22,20 +22,23 @@ A private, local web application for merging PDFs in a chosen order. It can add 
 
 ## Run locally
 
-On Windows, simply double-click the **`PDF Combiner`** shortcut. It has the navy-and-gold app icon and launches `Run PDF Combiner.cmd` for you.
+The project is built and launched with `./build.sh` from Git Bash (the Local Build Protocol; see the Build section of `CLAUDE.md`):
 
-If the shortcut is unavailable, double-click **`Run PDF Combiner.cmd`** directly.
+```bash
+./build.sh            # set up .venv and install requirements.txt (uv), check the app, refresh the Start Menu shortcut
+./build.sh --launch   # start the app in the background and open it in your browser
+./build.sh --stop     # stop the background server
+./build.sh --info     # show the environment, shortcut, and whether the app is running
+```
 
-It handles first-time setup, starts the app, and opens your browser automatically. There is no PowerShell activation step and no execution-policy setting to change. Keep the launcher window open while using the app; close it when finished.
+The build creates a **PDF Combiner** shortcut in Start > All apps > Dev Tools (search "PDF Combiner"; right-click > Pin to Start once). It starts the app without a console window and opens your browser; clicking it again while the app runs just opens another browser tab. The server keeps running in the background until `./build.sh --stop` or sign-out. Its output goes to `dist/logs/app.log`.
 
-Python 3.10 or newer is required. If Python is missing, the launcher will display a direct download link and explain what to do.
-
-For command-line use on other operating systems, install `requirements.txt` in a virtual environment and run `python launcher.py`.
+Python 3.10 or newer is required. Without the build tooling (any OS): create a virtual environment, install `requirements.txt` into it, and run `python launcher.py`.
 
 ## Test
 
-```powershell
-python -m unittest discover -s tests -v
+```bash
+.venv/Scripts/python -m unittest discover -s tests -v
 ```
 
 The upload limit is 500 MB per request and can be changed in `app.py`.
